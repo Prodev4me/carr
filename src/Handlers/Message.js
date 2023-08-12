@@ -70,7 +70,6 @@ const analysisMessage = async (M, client, context) => {
                 {
                     role: 'system',
                     content: `
-                    
                     analysis up coming messages, remember I have 3 features (google search, weather, wikipedia details), so when a message is about that you need to extract it
 e.g: 
 Can you tell me weather info of today weather of in Lahore?
@@ -177,7 +176,7 @@ const chatGPT = async (M, client, context) => {
             })
         messages.push({
             role: 'user',
-            content: `Userinfo: ${name} \nMessage: ${context.trim()} ${helper}`
+            content: `Userinfo: ${name} \nMessage: ${context.trim()}`
         })
         const response = await ai.createChatCompletion({
             model: 'gpt-3.5-turbo',
