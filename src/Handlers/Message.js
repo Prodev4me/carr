@@ -180,7 +180,7 @@ const chatGPT = async (M, client, context) => {
             content: `Userinfo: ${name} \nMessage: ${context.trim()} ${helper}`
         })
         const response = await ai.createChatCompletion({
-            model: 'gpt-3.5-turbo',
+            model: 'gpt-3.5-turbo-16k',
             messages,
             max_tokens: 4096
         })
