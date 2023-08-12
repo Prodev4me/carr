@@ -35,7 +35,8 @@ module.exports = async ({ messages }, client) => {
                 M.reply('👩🏻🎧✍️')
                 let result = await transcribe(await M.download(), client)
                 body = result
-                await M.reply(`🎙️ ▶️ _"${result}"_`)
+                const forward = M.message?.audioMessage?.contextInfo?.isForwarded
+                if (forward) await M.reply(`🎙️ ▶️ "${result}"`)
             }
             let data = await analysisMessage(M, client, body)
             if (!/^{\s*".*"\s*}$/.test(data)) data = '{ "normal": null }'
@@ -180,7 +181,8 @@ const chatGPT = async (M, client, context) => {
         })
         const response = await ai.createChatCompletion({
             model: 'gpt-3.5-turbo',
-            messages
+            messages,
+            max_tokens: 4096
         })
         const res = response.data.choices[0]?.message
         if (!res) return void M.reply('An error occurred')
