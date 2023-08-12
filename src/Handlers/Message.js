@@ -66,6 +66,7 @@ const analysisMessage = async (M, client, context) => {
     try {
         const response = await ai.createChatCompletion({
             model: 'gpt-3.5-turbo',
+            max_tokens: 4096,
             messages: [
                 {
                     role: 'system',
@@ -90,7 +91,8 @@ return { "normal": null }`
                     role: 'user',
                     content: context.trim()
                 }
-            ]
+            ],
+            
         })
         const res = response.data.choices[0]?.message
         return res?.content
@@ -180,7 +182,7 @@ When faced with ambiguous or unclear queries, seek clarification. If unable to a
             content: `Userinfo: ${name} \nMessage: ${context.trim()} ${helper}`
         })
         const response = await ai.createChatCompletion({
-            model: 'gpt-3.5-turbo-16k',
+            model: 'gpt-3.5-turbo',
             messages,
             max_tokens: 4096
         })
