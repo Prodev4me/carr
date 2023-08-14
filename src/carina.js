@@ -7,7 +7,6 @@ const {
 } = require('@whiskeysockets/baileys')
 const { QuickDB } = require('quick.db')
 const { MongoDriver } = require('quickmongo')
-const { Collection } = require('discord.js')
 const MessageHandler = require('./Handlers/Message')
 const contact = require('./lib/contacts')
 const utils = require('./lib/function')
@@ -15,7 +14,6 @@ const app = require('express')()
 const chalk = require('chalk')
 const P = require('pino')
 const { Boom } = require('@hapi/boom')
-const { join } = require('path')
 const { imageSync } = require('qr-image')
 const { readdirSync, unlink } = require('fs-extra')
 const port = process.env.PORT || 3000
@@ -23,7 +21,6 @@ const driver = new MongoDriver(process.env.URL)
 
 const start = async () => {
     const { state, saveCreds } = await useMultiFileAuthState('session')
-
     const client = Baileys({
         version: (await fetchLatestBaileysVersion()).version,
         auth: state,
@@ -31,23 +28,14 @@ const start = async () => {
         browser: ['Carina', 'silent', '4.0.0'],
         printQRInTerminal: true
     })
-
-    //Config
     client.name = process.env.NAME || 'Carina'
     client.apiKey = process.env.OPENAI_KEY || ''
-    //Database
-    client.DB = new QuickDB({
-        driver
-    })
-    //Tables
+    client.mods = (process.env.MODS || '').split(', ').map((jid) => `${jid}@s.whatsapp.net`)
+    
+    client.DB = new QuickDB({ driver })
     client.contactDB = client.DB.table('contacts')
-
-    //Contacts
     client.contact = contact
-
-    //Utils
     client.utils = utils
-
     client.messagesMap = new Map()
 
     /**
@@ -66,11 +54,9 @@ const start = async () => {
         return users
     }
 
-    //Colourful
     client.log = (text, color = 'green') =>
         color ? console.log(chalk.keyword(color)(text)) : console.log(chalk.green(text))
 
-    //connection updates
     client.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update
         if (update.qr) {
@@ -113,13 +99,9 @@ const start = async () => {
 }
 
 if (!process.env.URL) return console.error('You have not provided any MongoDB URL!!')
-driver
-    .connect()
-    .then(() => {
-        console.log(`Connected to the database!`)
-        // Starts the script if gets a success in connecting with Database
+driver.connect().then(() => {
+    console.log('Connected to the database!')
         start()
-    })
-    .catch((err) => console.error(err))
+}).catch((err) => console.error(err.message))
 
 app.listen(port, () => console.log(`Server started on PORT : ${port}`))

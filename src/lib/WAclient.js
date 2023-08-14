@@ -123,14 +123,14 @@ function serialize(msg, client) {
             (msg.type === 'buttonsResponseMessage' && msg.message?.[msg.type]?.selectedButtonId) ||
             (msg.type === 'templateButtonReplyMessage' && msg.message?.[msg.type]?.selectedId) ||
             ''
-        msg.reply = (text, quote) =>
+        msg.reply = (text) =>
             client.sendMessage(
                 msg.from,
                 {
                     text
                 },
                 {
-                    quoted: quote ? msg : ''
+                    quoted: msg
                 }
             )
         msg.download = () => downloadMedia(msg.message)

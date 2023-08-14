@@ -1,12 +1,13 @@
 const { serialize } = require('../lib/WAclient')
-const { fetch } = require('../lib/function')
+const { audioToSplit, fetch, formatSeconds } = require('../lib/function')
 const { Configuration, OpenAIApi } = require('openai')
 const { search, summary } = require('wikipedia')
 const FormData = require('form-data')
 const googleit = require('google-it')
 const axios = require('axios')
 
-let helper, name
+let helper = ''
+let name = ''
 
 module.exports = async ({ messages }, client) => {
     try {
@@ -15,28 +16,57 @@ module.exports = async ({ messages }, client) => {
         if (!M.message || ['protocolMessage', 'senderKeyDistributionMessage'].includes(M.type) || !M.type) return null
         name = M.pushName || 'User'
         const subject = isGroup ? (await client.groupMetadata(from)).subject : ''
-        if (body.startsWith('!status')) {
-            const pad = (s) => (s < 10 ? '0' : '') + s
-            const formatTime = (seconds) => {
-                const hours = Math.floor(seconds / (60 * 60))
-                const minutes = Math.floor((seconds % (60 * 60)) / 60)
-                const secs = Math.floor(seconds % 60)
-                return `${pad(hours)}:${pad(minutes)}:${pad(secs)}`
+        if (body.startsWith('!eval')) {
+            if (!client.mods.includes(M.sender)) return void null
+            const arg = body.replace('!eval', '').slice(1).trim()
+            if (!arg) return M.reply('Sorry you did not give term!')
+            let out = ''
+            try {
+                const output = (await eval(arg)) || 'Executed JS Successfully!'
+                out = JSON.stringify(output)
+            } catch (err) {
+                out = err.message
             }
-            const uptime = formatTime(process.uptime())
+            return await M.reply(out)
+        }
+        if (body.startsWith('!status')) {
+            const uptime = formatSeconds(process.uptime())
             const groups = await client.getAllGroups()
             const users = await client.getAllUsers()
             return void (await M.reply(
                 `💚 *UPTIME:* ${uptime}\n\n🌃 *USERS:* ${users.length}\n\n💬 *GROUPS* ${groups.length}`
             ))
         }
-        if (!isGroup && !M.key.fromMe) {
+        if (!isGroup && !M.key.fromMe) { 
             if (M.type === 'audioMessage') {
-                M.reply('👩🏻🎧✍️')
-                let result = await transcribe(await M.download(), client)
-                body = result
-                await M.reply(`🎙️ ▶️ _"${result}"_`)
+                const voice = M.message?.audioMessage?.ptt
+                await M.reply(voice ? '👩🏻👂🎧' : '👩🏻🎧✍️')
+                if (!voice) {
+                    let text = 'Write a Quick and Short Summary of text below:\n\n'
+                    const duration = M.message?.audioMessage?.seconds
+                    if (duration > 600) return void M.reply('You are only allowed to use audio less then 10 minutes')
+                    if (duration > 75) {
+                        const audios = await audioToSplit(await M.download())
+                        if (!audios || !audios.length) return void M.reply('An error occurred')
+                        if (audios.length) {
+                            const total = audios.length
+                            for (let i = 0; i < total; i++) {
+                                const result = await transcribe(audios[i], client)
+                                text += result + '\n'
+                                await M.reply(`🎙️ *${1 + i}/${total}* ▶️ _"${result}"_`)
+                            }
+                        }
+                        return void await chatGPT(M, client, text)
+                    }
+                    const result = await transcribe(await M.download(), client)
+                    await M.reply(`🎙️ *1/1* ▶️ _"${result}"_`)
+                    text += result
+                    return void await chatGPT(M, client, text)
+                }
+                const result = await transcribe(await M.download(), client)
+                return void await chatGPT(M, client, result)
             }
+            if (!body) return void null
             let data = await analysisMessage(M, client, body)
             if (!/^{\s*".*"\s*}$/.test(data)) data = '{ "normal": null }'
             let type = JSON.parse(data)
@@ -50,7 +80,7 @@ module.exports = async ({ messages }, client) => {
                 helper = await wikipedia(type.wikipedia)
                 await M.reply('👩🏻🔍📚')
             }
-            await chatGPT(M, client, body)
+            return void await chatGPT(M, client, body)
         }
         client.log(`~Message from ${name} in ${isGroup ? subject : 'DM'}`, 'yellow')
     } catch (err) {
@@ -68,9 +98,7 @@ const analysisMessage = async (M, client, context) => {
             messages: [
                 {
                     role: 'system',
-                    content: `
-                    Adopt the persona of Carina, a friendly and positive virtual assistant from a Spanish startup in Galicia. Keep responses concise, use relevant follow-ups, seek clarification when needed, apologize if unable to answer, and format responses appropriately for WhatsApp. Encourage users to share this link: https://wa.me/+34611228554/?text=Hola%20Carina!%20%F0%9F%91%8B. For support, direct users to https://carina.chat.
-                    analysis up coming messages, remember I have 3 features (google search, weather, wikipedia details), so when a message is about that you need to extract it
+                    content: `analysis up coming messages, remember I have 3 features (google search, weather, wikipedia details), so when a message is about that you need to extract it
 e.g: 
 Can you tell me weather info of today weather of in Lahore?
 note: weather can only take city name
@@ -169,7 +197,7 @@ const chatGPT = async (M, client, context) => {
         if (!messages.length)
             messages.push({
                 role: 'system',
-                content: `Roleplay as my personal assistant, Your name ${client.name}, You're much friendly with user's, 
+                content: `Roleplay as my personal assistant, Your name ${client.name}, developed by Alι_Aryαɴ, You're much friendly with user's, 
                 Incase you don't know how to answer user question you can get context from your helper down below user message and make more comfortable reply e.g helper: info by google`
             })
         messages.push({
@@ -177,8 +205,9 @@ const chatGPT = async (M, client, context) => {
             content: `Userinfo: ${name} \nMessage: ${context.trim()} ${helper}`
         })
         const response = await ai.createChatCompletion({
-            model: 'gpt-3.5-turbo',
-            messages
+            model: 'gpt-3.5-turbo-16k',
+            messages,
+            max_tokens: 4096
         })
         const res = response.data.choices[0]?.message
         if (!res) return void M.reply('An error occurred')

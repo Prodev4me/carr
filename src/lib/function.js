@@ -1,14 +1,27 @@
 const axios = require('axios').default
 const { tmpdir } = require('os')
 const { promisify } = require('util')
+const exec = promisify(require('child_process').exec)
 const linkify = require('linkifyjs')
-const FormData = require('form-data')
-const { load } = require('cheerio')
-const { exec } = require('child_process')
-const { createCanvas } = require('canvas')
-const { sizeFormatter } = require('human-readable')
-const { readFile, unlink, writeFile } = require('fs-extra')
-const { removeBackgroundFromImageBase64 } = require('remove.bg')
+const fs = require('fs-extra')
+const path = require('path')
+
+const audioToSplit = async (buffer) => {
+  const filename = path.join(tmpdir(), `${Math.random().toString(36)}.mp3`)
+  await fs.writeFile(filename, buffer)
+  try {
+    const directory = 'temporary'
+    await fs.ensureDir(directory)
+    await exec(`ffmpeg -i ${filename} -f segment -segment_time 75 -c:a libmp3lame ${directory}/audio_%03d.mp3`)
+    const files = await fs.readdir(directory)
+    const buffers = await Promise.all(files.map(x => fs.readFile(path.join(directory, x))))
+    await Promise.all([fs.unlink(filename), fs.remove(directory)])
+    return buffers
+  } catch (error) {
+    console.error(error.message)
+    return []
+  }
+}
 
 /**
  * @param {string} url
@@ -22,6 +35,8 @@ const getBuffer = async (url) =>
         })
     ).data
 
+const formatSeconds = (seconds) => new Date(seconds * 1000).toISOString().substr(11, 8)
+
 /**
  * @param {string} content
  * @param {boolean} all
@@ -34,41 +49,6 @@ const capitalize = (content, all = false) => {
         .split('')
         .map((text) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`)
         .join('')}`
-}
-
-/**
- * Copyright by (AliAryanTech), give credit!
- * @param {string} cardName
- * @param {string} expiryDate
- * @returns {Promise<Buffer>}
- */
-
-const generateCreditCardImage = (cardName, expiryDate) => {
-    const canvas = createCanvas(800, 500)
-    const ctx = canvas.getContext('2d')
-    ctx.fillStyle = '#fff'
-    ctx.fillRect(0, 0, 800, 500)
-    ctx.fillStyle = '#1e90ff'
-    ctx.fillRect(0, 0, 800, 80)
-    ctx.fillStyle = '#555'
-    ctx.font = '24px Arial, sans-serif'
-    ctx.fillText('Credit Card', 40, 150)
-    ctx.fillStyle = '#000'
-    ctx.font = '48px Arial, sans-serif'
-    ctx.fillText('1234 5678 9012 3456', 40, 250) // card numbers
-    ctx.fillStyle = '#555'
-    ctx.font = '24px Arial, sans-serif'
-    ctx.fillText('Card Name', 40, 350)
-    ctx.fillStyle = '#000'
-    ctx.font = '32px Arial, sans-serif'
-    ctx.fillText(cardName, 40, 400)
-    ctx.fillStyle = '#555'
-    ctx.font = '24px Arial, sans-serif'
-    ctx.fillText('Expiry Date', 450, 350)
-    ctx.fillStyle = '#000'
-    ctx.font = '32px Arial, sans-serif'
-    ctx.fillText(expiryDate, 450, 400)
-    return canvas.toBuffer()
 }
 
 /**
@@ -100,130 +80,14 @@ const extractUrls = (content) => linkify.find(content).map((url) => url.value)
 
 const fetch = async (url) => (await axios.get(url)).data
 
-/**
- * @param {Buffer} webp
- * @returns {Promise<Buffer>}
- */
-
-const webpToPng = async (webp) => {
-    const filename = `${tmpdir()}/${Math.random().toString(36)}`
-    await writeFile(`${filename}.webp`, webp)
-    await execute(`dwebp "${filename}.webp" -o "${filename}.png"`)
-    const buffer = await readFile(`${filename}.png`)
-    Promise.all([unlink(`${filename}.png`), unlink(`${filename}.webp`)])
-    return buffer
-}
-
-/**
- * @param {Buffer} webp
- * @returns {Promise<Buffer>}
- */
-
-const webpToMp4 = async (webp) => {
-    const responseFile = async (form, buffer = '') => {
-        return axios.post(buffer ? `https://ezgif.com/webp-to-mp4/${buffer}` : 'https://ezgif.com/webp-to-mp4', form, {
-            headers: { 'Content-Type': `multipart/form-data; boundary=${form._boundary}` }
-        })
-    }
-    return new Promise(async (resolve, reject) => {
-        const form = new FormData()
-        form.append('new-image-url', '')
-        form.append('new-image', webp, { filename: 'blob' })
-        responseFile(form)
-            .then(({ data }) => {
-                const datafrom = new FormData()
-                const $ = load(data)
-                const file = $('input[name="file"]').attr('value')
-                datafrom.append('file', file)
-                datafrom.append('convert', 'Convert WebP to MP4!')
-                responseFile(datafrom, file)
-                    .then(async ({ data }) => {
-                        const $ = load(data)
-                        const result = await getBuffer(
-                            `https:${$('div#output > p.outfile > video > source').attr('src')}`
-                        )
-                        resolve(result)
-                    })
-                    .catch(reject)
-            })
-            .catch(reject)
-    })
-}
-
-/**
- * @param {Buffer} gif
- * @param {boolean} write
- * @returns {Promise<Buffer | string>}
- */
-
-const gifToMp4 = async (gif, write = false) => {
-    const filename = `${tmpdir()}/${Math.random().toString(36)}`
-    await writeFile(`${filename}.gif`, gif)
-    await execute(
-        `ffmpeg -f gif -i ${filename}.gif -movflags faststart -pix_fmt yuv420p -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" ${filename}.mp4`
-    )
-    if (write) return `${filename}.mp4`
-    const buffer = await readFile(`${filename}.mp4`)
-    Promise.all([unlink(`${filename}.gif`), unlink(`${filename}.mp4`)])
-    return buffer
-}
-
-const execute = promisify(exec)
-
-const getRandomItem = (array) => array[Math.floor(Math.random() * array.length)]
-
-const calculatePing = (timestamp, now) => (now - timestamp) / 1000
-
-const formatSize = sizeFormatter({
-    std: 'JEDEC',
-    decimalPlaces: '2',
-    keepTrailingZeroes: false,
-    render: (literal, symbol) => `${literal} ${symbol}B`
-})
-
-const term = (param) =>
-    new Promise((resolve, reject) => {
-        console.log('Run terminal =>', param)
-        exec(param, (error, stdout, stderr) => {
-            if (error) {
-                console.log(error.message)
-                resolve(error.message)
-            }
-            if (stderr) {
-                console.log(stderr)
-                resolve(stderr)
-            }
-            console.log(stdout)
-            resolve(stdout)
-        })
-    })
-
-const restart = () => {
-    exec('pm2 start src/krypton.js', (err, stdout, stderr) => {
-        if (err) {
-            console.log(err)
-            return
-        }
-        console.log(`stdout: ${stdout}`)
-        console.log(`stderr: ${stderr}`)
-    })
-}
-
 module.exports = {
-    calculatePing,
-    capitalize,
-    execute,
-    extractNumbers,
-    fetch,
-    formatSize,
-    extractUrls,
-    generateCreditCardImage,
-    generateRandomHex,
+    exec,
+    audioToSplit,
     getBuffer,
-    getRandomItem,
-    gifToMp4,
-    restart,
-    term,
-    webpToMp4,
-    webpToPng
+    formatSeconds,
+    capitalize,
+    generateRandomHex,
+    extractNumbers,
+    extractUrls,
+    fetch
 }
